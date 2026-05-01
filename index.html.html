@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>قارئ الباركود والـ QR</title>
+  <style>
+    :root{
+      --bg:#f7f7f7;--card:#ffffff;--muted:#666666;--accent:#0d8bff;--accent-2:#0dd4aa;
+      --radius:12px; font-family:"Segoe UI", Tahoma, Arial, sans-serif;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);display:flex;justify-content:center;padding:20px;color:#222}
+    .shell{width:100%;max-width:1100px;background:var(--card);padding:18px;border-radius:var(--radius);box-shadow:0 4px 18px rgba(0,0,0,0.08)}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+    .logo{width:50px;height:50px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent-2));display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:18px}
+    h1{margin:0;font-size:19px;color:#222}
+    p.subtitle{margin:2px 0 0;color:var(--muted);font-size:13px}
+    .main{display:grid;grid-template-columns:1fr 400px;gap:16px;margin-top:16px}
+    .card{background:var(--card);padding:16px;border-radius:var(--radius);border:1px solid #e6e6e6}
+    .drop{padding:22px;border-radius:10px;border:2px dashed #cfd5df;background:#fafafa;text-align:center;cursor:pointer;transition:.15s}
+    .drop.dragover{border-color:var(--accent);background:#eef7ff}
+    .btn{padding:9px 12px;border-radius:8px;border:1px solid #d7d7d7;background:#fff;cursor:pointer;font-size:13px}
+    .btn.primary{background:var(--accent);color:#fff;border:none}
+    .btn.ghost{background:#fafafa;color:#444;border:1px solid #ddd}
+    .preview{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+    .thumb{width:85px;height:60px;border-radius:8px;object-fit:cover;border:1px solid #ddd}
+    .chip{padding:6px 10px;border-radius:999px;background:#efefef;color:#444;font-size:12px;margin-top:10px;display:inline-block}
+    .results{max-height:500px;overflow:auto;display:flex;flex-direction:column;gap:10px;margin-top:6px}
+    .result-item{padding:12px;border-radius:8px;border:1px solid #e6e6e6;background:#fafafa}
+    .result-meta{display:flex;justify-content:space-between;font-size:12px;color:#666}
+    .result-text{margin-top:6px;font-size:13px;word-break:break-all}
+    .actions{display:flex;gap:8px;margin-top:8px}
+    .small-btn{padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;font-size:12px;cursor:pointer}
+    footer{text-align:center;margin-top:12px;color:#666;font-size:13px}
+    @media(max-width:900px){.main{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="logo">QR</div>
+      <div>
+        <h1>قارئ الباركود والـ QR</h1>
+        <p class="subtitle">رفع صور، PDF، أو مسح عبر الكاميرا</p>
+      </div>
+    </header>
+
+    <div class="main">
+      <div>
+        <div class="card">
+          <p style="margin:0 0 12px;font-size:12px;color:#666;text-align:center">
+            تم تصميم البرنامج ليعمل بكفاءة عالية على أجهزة سطح المكتب (Desktop)، مما يضمن أداءً مثاليًا.
+          </p>
+          <div id="dropzone" class="drop" tabindex="0">
+            <h3 style="margin:0;font-size:15px">اسحب الملفات هنا أو اضغط للاختيار</h3>
+            <p style="margin:6px 0 0;color:var(--muted);font-size:12px">يدعم صور وPDF</p>
+            <input id="file-input" type="file" accept="image/*,application/pdf" multiple style="display:none" />
+          </div>
+
+          <div class="controls" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <label class="btn" id="browse-btn">اختر ملف</label>
+            <button class="btn primary" id="camera-btn">الكاميرا</button>
+            <button class="btn ghost" id="clear-btn">مسح النتائج</button>
+          </div>
+
+          <div class="preview" id="preview"></div>
+          <div style="margin-top:10px">
+            <span class="chip" id="status">جاهز</span>
+            <span class="chip" id="stats">0 نتيجة</span>
+          </div>
+        </div>
+      </div>
+
+      <aside>
+        <div class="card" style="height:100%">
+          <h3 style="margin:0 0 8px;font-size:15px">النتائج</h3>
+          <div class="results" id="results"></div>
+        </div>
+      </aside>
+    </div>
+
+    <footer>— برمجه ابو حمود —</footer>
+  </div>
+
+  <!-- مكتبات -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.min.js"></script>
+
+  <script>
+    // worker pdf.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/build/pdf.worker.min.js';
+
+    // عناصر الواجهة
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
+    const browseBtn = document.getElementById('browse-btn');
+    const preview = document.getElementById('preview');
+    const status = document.getElementById('status');
+    const stats = document.getElementById('stats');
+    const resultsEl = document.getElementById('results');
+    const cameraBtn = document.getElementById('camera-btn');
+    const clearBtn = document.getElementById('clear-btn');
+
+    let results = [];
+
+    function setStatus(t){ status.textContent = t; }
+    function setStats(){ stats.textContent = results.length + ' نتيجة'; }
+
+    // Drag & Drop handlers (تأكد من السماح بإسقاط الملفات)
+    ['dragenter','dragover'].forEach(ev =>
+      dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('dragover'); })
+    );
+    ['dragleave','drop'].forEach(ev =>
+      dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('dragover'); })
+    );
+
+    dropzone.addEventListener('drop', e => {
+      const files = e.dataTransfer.files;
+      handleFiles(files);
+    });
+
+    // فتح اختيار الملفات عن طريق الضغط
+    dropzone.addEventListener('click', () => fileInput.click());
+    browseBtn.addEventListener('click', () => fileInput.click());
+
+    // file input change
+    fileInput.addEventListener('change', e => {
+      handleFiles(e.target.files);
+      // reset input so selecting same file again triggers change
+      fileInput.value = '';
+    });
+
+    clearBtn.addEventListener('click', () => {
+      results = [];
+      renderResults();
+      preview.innerHTML = '';
+      setStatus('تم المسح');
+      setTimeout(()=> setStatus('جاهز'), 800);
+    });
+
+    async function handleFiles(fileList) {
+      if (!fileList || fileList.length === 0) return;
+      setStatus('يعالج الملفات...');
+      const files = Array.from(fileList);
+      for (const file of files) {
+        try {
+          if (file.type.startsWith('image/')) {
+            await processImage(file);
+          } else if (file.type === 'application/pdf') {
+            await processPdf(file);
+          } else {
+            console.warn('نوع ملف غير مدعوم', file.name, file.type);
+          }
+        } catch (err) {
+          console.error('خطأ معالجة الملف', file.name, err);
+        }
+      }
+      renderResults();
+      setStatus('جاهز');
+    }
+
+    function readAsDataURL(file) {
+      return new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = () => rej(new Error('فشل قراءة الملف'));
+        fr.readAsDataURL(file);
+      });
+    }
+
+    function readAsArrayBuffer(file) {
+      return new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = () => rej(new Error('فشل قراءة الملف'));
+        fr.readAsArrayBuffer(file);
+      });
+    }
+
+    async function processImage(file) {
+      const url = await readAsDataURL(file);
+      const img = document.createElement('img');
+      img.src = url;
+      img.className = 'thumb';
+      preview.appendChild(img);
+      // ensure image loaded
+      await img.decode().catch(()=>{ /* ignore decode errors */ });
+      const found = decodeCanvasFromImage(img);
+      found.forEach(t => results.push({ source: file.name, text: t }));
+    }
+
+    async function processPdf(file) {
+      const buf = await readAsArrayBuffer(file);
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const vp = page.getViewport({ scale: 2 });
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = Math.round(vp.width);
+        canvas.height = Math.round(vp.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        const imgUrl = canvas.toDataURL();
+        const thumb = document.createElement('img');
+        thumb.src = imgUrl;
+        thumb.className = 'thumb';
+        preview.appendChild(thumb);
+        const found = decodeCanvas(canvas);
+        found.forEach(t => results.push({ source: `${file.name} (صفحة ${i})`, text: t }));
+      }
+    }
+
+    // تحويل <img> أو <canvas> إلى نتائج
+    function decodeCanvasFromImage(img) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return decodeCanvas(canvas);
+    }
+
+    function decodeCanvas(canvas) {
+      const ctx = canvas.getContext('2d');
+      try {
+        const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const out = [];
+        // try jsQR (QR codes)
+        const qr = jsQR(id.data, id.width, id.height, { inversionAttempts: 'attemptBoth' });
+        if (qr && qr.data) out.push(qr.data);
+
+        // scan quarters to find multiple codes
+        const regs = [
+          { x: 0, y: 0, w: canvas.width, h: canvas.height },
+          { x: 0, y: 0, w: Math.floor(canvas.width / 2), h: Math.floor(canvas.height / 2) },
+          { x: Math.floor(canvas.width / 2), y: 0, w: Math.floor(canvas.width / 2), h: Math.floor(canvas.height / 2) },
+          { x: 0, y: Math.floor(canvas.height / 2), w: Math.floor(canvas.width / 2), h: Math.floor(canvas.height / 2) },
+          { x: Math.floor(canvas.width / 2), y: Math.floor(canvas.height / 2), w: Math.floor(canvas.width / 2), h: Math.floor(canvas.height / 2) }
+        ];
+        for (const r of regs) {
+          try {
+            // guard region size
+            if (r.w <= 0 || r.h <= 0) continue;
+            const d = ctx.getImageData(r.x, r.y, r.w, r.h);
+            const c = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
+            if (c && c.data && !out.includes(c.data)) out.push(c.data);
+          } catch (e) { /* ignore */ }
+        }
+
+        // fallback ZXing for non-QR barcodes
+        if (out.length === 0 && window.ZXing) {
+          try {
+            const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+            const bin = new ZXing.Common.HybridBinarizer(lum);
+            const bitmap = new ZXing.BinaryBitmap(bin);
+            const reader = new ZXing.MultiFormatReader();
+            const res = reader.decode(bitmap);
+            if (res && res.getText) out.push(res.getText());
+          } catch (e) { /* ignore */ }
+        }
+
+        return Array.from(new Set(out));
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function renderResults() {
+      resultsEl.innerHTML = '';
+      if (results.length === 0) {
+        resultsEl.innerHTML = '<div style="color:var(--muted);padding:8px">لا توجد نتائج حتى الآن</div>';
+        setStats();
+        return;
+      }
+
+      results.forEach((r, idx) => {
+        const item = document.createElement('div');
+        item.className = 'result-item';
+        const meta = document.createElement('div');
+        meta.className = 'result-meta';
+        const src = document.createElement('div');
+        src.textContent = r.source;
+        const idv = document.createElement('div');
+        idv.style.fontSize = '12px';
+        idv.style.color = '#777';
+        idv.textContent = 'نتيجة ' + (idx + 1);
+        meta.appendChild(src);
+        meta.appendChild(idv);
+
+        const text = document.createElement('div');
+        text.className = 'result-text';
+        if (/^https?:\/\//i.test(r.text)) {
+          const a = document.createElement('a');
+          a.href = r.text;
+          a.target = '_blank';
+          a.rel = 'noreferrer';
+          a.textContent = r.text;
+          a.style.color = 'var(--accent)';
+          text.appendChild(a);
+        } else {
+          text.textContent = r.text;
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'small-btn';
+        copyBtn.textContent = 'نسخ';
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(r.text).then(() => setStatus('تم النسخ'));
+        };
+        const openBtn = document.createElement('button');
+        openBtn.className = 'small-btn';
+        openBtn.textContent = 'فتح';
+        openBtn.onclick = () => {
+          if (/^https?:\/\//i.test(r.text)) window.open(r.text, '_blank');
+          else alert(r.text);
+        };
+        actions.appendChild(copyBtn);
+        actions.appendChild(openBtn);
+
+        item.appendChild(meta);
+        item.appendChild(text);
+        item.appendChild(actions);
+        resultsEl.appendChild(item);
+      });
+
+      setStats();
+    }
+
+    // كاميرا Live scanner (سيعمل إن منح المتصفح الإذن)
+    cameraBtn.addEventListener('click', async () => {
+      const overlay = document.createElement('div');
+      Object.assign(overlay.style, { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 });
+      const modal = document.createElement('div');
+      Object.assign(modal.style, { width: '560px', maxWidth: '96%', background: '#fff', padding: '12px', borderRadius: '12px' });
+      const video = document.createElement('video');
+      Object.assign(video.style, { width: '100%', borderRadius: '8px' });
+      video.autoplay = true; video.playsInline = true;
+      const close = document.createElement('button');
+      close.className = 'btn';
+      close.textContent = 'إغلاق';
+      close.style.marginTop = '8px';
+      modal.appendChild(video);
+      modal.appendChild(close);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+      } catch (e) {
+        alert('تعذر الوصول إلى الكاميرا. تأكد من منح الإذن أو افتح الصفحة عبر HTTPS.');
+        overlay.remove();
+        return;
+      }
+
+      let scanning = true;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      const loop = () => {
+        if (!scanning) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          try {
+            const imgd = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const qr = jsQR(imgd.data, imgd.width, imgd.height, { inversionAttempts: 'attemptBoth' });
+            if (qr && qr.data) {
+              results.push({ source: 'كاميرا مباشر', text: qr.data });
+              renderResults();
+              setStatus('تم العثور على نتيجة من الكاميرا');
+              scanning = false;
+              if (stream) stream.getTracks().forEach(t => t.stop());
+              overlay.remove();
+              return;
+            }
+          } catch (e) { /* ignore */ }
+        }
+        requestAnimationFrame(loop);
+      };
+      loop();
+
+      close.addEventListener('click', () => {
+        scanning = false;
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        overlay.remove();
+      });
+    });
+
+    // بداية
+    setStatus('جاهز');
+    renderResults();
+  </script>
+</body>
+</html>
